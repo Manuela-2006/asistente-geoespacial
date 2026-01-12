@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { openai, OPENAI_MODEL, assertOpenAIKey } from "@/lib/openai";
 
+import type {
+  ChatCompletion,
+  ChatCompletionCreateParamsNonStreaming,
+} from "openai/resources/chat/completions";
+
 import {
   buscarCoordenadas,
   buscarCoordenadasToolOpenAI,
@@ -33,36 +38,37 @@ type OpenAIToolCall = {
 
 // Función de validación de respuestas
 function validarRespuesta(toolResults: ToolResult[], aiResponse: string) {
-  const warnings = [];
-  
-  // Verificar que se usaron las tools necesarias
-  const toolsUsadas = toolResults.map(t => t.tool);
-  
+  const warnings: string[] = [];
+
+  const toolsUsadas = toolResults.map((t) => t.tool);
+
   if (toolsUsadas.length === 0) {
-    warnings.push('No se utilizaron herramientas - la respuesta puede no estar basada en datos reales');
+    warnings.push(
+      "No se utilizaron herramientas - la respuesta puede no estar basada en datos reales"
+    );
   }
-  
-  // Verificar que todas las tools tuvieron éxito
+
   for (const tr of toolResults) {
-    if (tr.result.success === false) {
-      warnings.push(`La herramienta ${tr.tool} falló: ${tr.result.error || 'Error desconocido'}`);
+    if (tr.result?.success === false) {
+      warnings.push(
+        `La herramienta ${tr.tool} falló: ${tr.result?.error || "Error desconocido"}`
+      );
     }
   }
-  
-  // Verificar que la respuesta menciona las fuentes
+
   const fuentesMencionadas = [
-    aiResponse.includes('Nominatim') || aiResponse.includes('OpenStreetMap'),
-    aiResponse.includes('Overpass') || aiResponse.includes('OSM'),
-    aiResponse.includes('Open-Elevation') || aiResponse.includes('elevación')
+    aiResponse.includes("Nominatim") || aiResponse.includes("OpenStreetMap"),
+    aiResponse.includes("Overpass") || aiResponse.includes("OSM"),
+    aiResponse.includes("Open-Elevation") || aiResponse.includes("elevación"),
   ];
-  
-  if (!fuentesMencionadas.some(f => f)) {
-    warnings.push('La respuesta no cita claramente las fuentes de datos');
+
+  if (!fuentesMencionadas.some((f) => f)) {
+    warnings.push("La respuesta no cita claramente las fuentes de datos");
   }
-  
+
   return {
     valid: warnings.length === 0,
-    warnings
+    warnings,
   };
 }
 
@@ -73,7 +79,6 @@ export async function POST(request: NextRequest) {
     const body = await request.json();
     const { query, latitude, longitude } = body ?? {};
 
-    // Validación robusta (ojo: 0 es válido)
     const hasCoords =
       latitude !== undefined &&
       longitude !== undefined &&
@@ -129,29 +134,31 @@ Tu respuesta debe ser un informe estructurado con estas secciones:
 - Resumen ejecutivo de la zona
 - Consideraciones finales
 
-Usa formato Markdown para mejor legibilidad. Sé conciso pero completo.`
+Usa formato Markdown para mejor legibilidad. Sé conciso pero completo.`,
       },
       { role: "user", content: userPrompt },
     ];
 
     const toolResults: ToolResult[] = [];
-
     const MAX_ITER = 6;
 
     for (let i = 0; i < MAX_ITER; i++) {
-      const resp = await openai.chat.completions.create({
+      // ✅ Clave: tipar params como NON-STREAMING para que el retorno sea ChatCompletion (no unión)
+      const params: ChatCompletionCreateParamsNonStreaming = {
         model: OPENAI_MODEL,
         messages,
         tools: tools as any,
         tool_choice: "auto",
-      });
+        stream: false,
+      };
+
+      const resp = (await openai.chat.completions.create(params)) as ChatCompletion;
 
       const msg = resp.choices?.[0]?.message;
       if (!msg) break;
 
       const toolCalls = (msg.tool_calls ?? []) as OpenAIToolCall[];
 
-      // Si no hay tool calls, es respuesta final
       if (toolCalls.length === 0) {
         const finalResponse = msg.content || "";
         const validation = validarRespuesta(toolResults, finalResponse);
@@ -162,15 +169,13 @@ Usa formato Markdown para mejor legibilidad. Sé conciso pero completo.`
           tools_used: toolResults,
           ai_response: finalResponse,
           iterations: i,
-          validation: validation,
+          validation,
           timestamp: new Date().toISOString(),
         });
       }
 
-      // Guardar el mensaje del assistant que pide tools
       messages.push(msg);
 
-      // Ejecutar tools
       for (const tc of toolCalls) {
         const name = tc.function.name;
 
@@ -217,7 +222,6 @@ Usa formato Markdown para mejor legibilidad. Sé conciso pero completo.`
 
         toolResults.push({ tool: name, arguments: args, result });
 
-        // CRÍTICO: role=tool con tool_call_id para que el modelo lo vincule
         messages.push({
           role: "tool",
           tool_call_id: tc.id,
@@ -226,7 +230,6 @@ Usa formato Markdown para mejor legibilidad. Sé conciso pero completo.`
       }
     }
 
-    // Si llegamos aquí, se alcanzó el límite de iteraciones
     return NextResponse.json(
       {
         success: false,
