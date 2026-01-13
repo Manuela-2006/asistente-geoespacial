@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   MapContainer,
   TileLayer,
@@ -44,13 +44,7 @@ function ensureLeafletIcons() {
 /* =========================================================
    Auxiliares
 ========================================================= */
-function ChangeView({
-  center,
-  zoom,
-}: {
-  center: LatLngExpression;
-  zoom: number;
-}) {
+function ChangeView({ center, zoom }: { center: LatLngExpression; zoom: number }) {
   const map = useMap();
   useEffect(() => {
     map.setView(center, zoom, { animate: true });
@@ -58,11 +52,7 @@ function ChangeView({
   return null;
 }
 
-function MapClickHandler({
-  onMapClick,
-}: {
-  onMapClick?: (lat: number, lon: number) => void;
-}) {
+function MapClickHandler({ onMapClick }: { onMapClick?: (lat: number, lon: number) => void }) {
   useMapEvents({
     click: (e) => {
       toast.info("Analizando coordenadas seleccionadas...");
@@ -73,36 +63,72 @@ function MapClickHandler({
 }
 
 /* =========================================================
-   Heatmap layer
+   Heatmap Layer (estable + visible)
 ========================================================= */
 function HeatmapLayer({
   points,
-  visible,
+  enabled,
 }: {
   points: [number, number, number][];
-  visible: boolean;
+  enabled: boolean;
 }) {
   const map = useMap();
+  const heatRef = useRef<any>(null);
 
+  // Crea o quita la capa (toggle)
   useEffect(() => {
-    if (!visible || !points || points.length === 0) return;
+    const heatFactory = (L as any).heatLayer;
 
-    const layer = (L as any).heatLayer(points, {
-      radius: 25,
-      blur: 18,
-      maxZoom: 17,
-    });
+    // Si el plugin no está cargado, aquí lo verás claro
+    if (!heatFactory) {
+      console.error("leaflet.heat no está disponible: L.heatLayer es undefined");
+      return;
+    }
 
-    layer.addTo(map);
-
-    return () => {
-      try {
-        map.removeLayer(layer);
-      } catch {
-        // si ya no existe, no pasa nada
+    if (!enabled) {
+      if (heatRef.current) {
+        try {
+          map.removeLayer(heatRef.current);
+        } catch {}
+        heatRef.current = null;
       }
-    };
-  }, [map, points, visible]);
+      return;
+    }
+
+    // Si está enabled pero no hay puntos, no pintes nada (pero deja el estado preparado)
+    if (!points || points.length === 0) return;
+
+    // Crea capa una vez
+    if (!heatRef.current) {
+      heatRef.current = heatFactory(points, {
+        radius: 40,          // ↑ más grande para que se vea
+        blur: 25,
+        maxZoom: 17,
+        minOpacity: 0.35,    // ↑ evita que sea “invisible”
+        max: 1,              // como tú normalizas a 0..1
+      }).addTo(map);
+    } else {
+      // Si ya existe, asegúrate de que esté en el mapa
+      if (!(map as any).hasLayer?.(heatRef.current)) {
+        heatRef.current.addTo(map);
+      }
+    }
+  }, [map, enabled, points]);
+
+  // Actualiza puntos sin recrear la capa
+  useEffect(() => {
+    if (!enabled) return;
+    if (!heatRef.current) return;
+    if (!points || points.length === 0) return;
+
+    try {
+      heatRef.current.setLatLngs(points);
+      // “kick” por si canvas no refresca bien en algunos casos
+      map.invalidateSize();
+    } catch (e) {
+      console.error("Error actualizando heatmap:", e);
+    }
+  }, [map, enabled, points]);
 
   return null;
 }
@@ -121,7 +147,6 @@ interface MapViewProps {
   markers?: MarkerItem[];
   onMapClick?: (lat: number, lon: number) => void;
 
-  // 🔥 Heatmap controlado desde page.tsx
   heatmapPoints?: [number, number, number][];
   heatmapEnabled?: boolean;
   heatmapLoading?: boolean;
@@ -179,9 +204,8 @@ export default function MapView({
 
         <TileLayer attribution={currentLayer.attribution} url={currentLayer.url} />
 
-        {heatmapEnabled && (
-          <HeatmapLayer points={heatmapPoints} visible={heatmapEnabled} />
-        )}
+        {/* Heatmap */}
+        <HeatmapLayer points={heatmapPoints} enabled={heatmapEnabled} />
 
         {markers
           .filter(
@@ -197,19 +221,16 @@ export default function MapView({
           ))}
       </MapContainer>
 
-      {/* ✅ Controles del mapa (igual que satélite) */}
+      {/* Controles (igual que satélite) */}
       <div className="absolute top-4 right-4 z-[1000] flex flex-col gap-2">
         <Button
-          onClick={() =>
-            setMapLayer((l) => (l === "standard" ? "satellite" : "standard"))
-          }
+          onClick={() => setMapLayer((l) => (l === "standard" ? "satellite" : "standard"))}
           variant="secondary"
           size="sm"
         >
           {mapLayer === "satellite" ? "🗺️ Mapa" : "🛰️ Satélite"}
         </Button>
 
-        {/* 🔥 Botón contaminación dentro del overlay */}
         <Button
           onClick={onToggleHeatmap}
           disabled={!onToggleHeatmap || heatmapLoading}

@@ -1,10 +1,10 @@
 "use client";
-
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import jsPDF from "jspdf";
 import SearchBar from "@/components/SearchBar";
 import FavoritosList from "@/components/FavoritosList";
+import AddFavoritoModal from "@/components/AddFavoritoModal";
 import {
   Card,
   CardContent,
@@ -30,37 +30,43 @@ const MapView = dynamic(() => import("@/components/MapView"), {
 export default function Home() {
   const [center, setCenter] = useState<[number, number]>([40.416775, -3.70379]);
   const [zoom, setZoom] = useState<number>(13);
-
+  
   // ✅ Heatmap (control desde page)
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [heatPoints, setHeatPoints] = useState<[number, number, number][]>([]);
   const [heatLoading, setHeatLoading] = useState(false);
-
+  
   const [markers, setMarkers] = useState<MarkerItem[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [result, setResult] = useState<any>(null);
   const [errorMsg, setErrorMsg] = useState<string>("");
-
+  
   const { favoritos, addFavorito, removeFavorito, isFavorito } = useFavoritos();
-
+  
   const [compareA, setCompareA] = useState("");
   const [compareB, setCompareB] = useState("");
   const [compareResult, setCompareResult] = useState<string | null>(null);
   const [compareLoading, setCompareLoading] = useState(false);
+  
+  // ✅ Modal añadir favorito
+  const [favModalOpen, setFavModalOpen] = useState(false);
+  const [favDefaultData, setFavDefaultData] = useState<{
+    id: string;
+    label: string;
+    lat: number;
+    lon: number;
+  } | null>(null);
 
   /* =========================
      UTILIDADES
   ========================= */
-
   const setMarkerSafe = (lat: unknown, lon: unknown, popup: string) => {
     const latNum = Number(lat);
     const lonNum = Number(lon);
-
     if (!Number.isFinite(latNum) || !Number.isFinite(lonNum)) {
       setMarkers([]);
       return false;
     }
-
     setCenter([latNum, lonNum]);
     setZoom(14);
     setMarkers([{ position: [latNum, lonNum], popup }]);
@@ -82,7 +88,6 @@ export default function Home() {
 
   const formatReportForDisplay = (text: string) => {
     let t = cleanReport(text);
-
     const sections = [
       "Ubicación",
       "Infraestructura Urbana",
@@ -90,12 +95,10 @@ export default function Home() {
       "Conclusión",
       "Consideraciones finales",
     ];
-
     sections.forEach((title) => {
       const regex = new RegExp(`\\n?${title}\\n?`, "i");
       t = t.replace(regex, `\n\n${title.toUpperCase()}\n\n`);
     });
-
     const fields = [
       "Coordenadas exactas",
       "Dirección completa",
@@ -105,12 +108,10 @@ export default function Home() {
       "Recomendaciones",
       "Factores considerados",
     ];
-
     fields.forEach((field) => {
       const regex = new RegExp(`${field}:`, "gi");
       t = t.replace(regex, `\n${field}:`);
     });
-
     [
       "Educación",
       "Salud",
@@ -126,24 +127,29 @@ export default function Home() {
       const r = new RegExp(`${cat}:`, "gi");
       t = t.replace(r, `\n${cat}:`);
     });
-
     t = t.replace(/\n{3,}/g, "\n\n");
     return t.trim();
   };
 
+  const reportText =
+    typeof result?.ai_response === "string" && result.ai_response.trim()
+      ? formatReportForDisplay(result.ai_response)
+      : null;
+
+  const currentId = useMemo(() => {
+    if (markers.length === 0) return null;
+    return `${markers[0].position[0]},${markers[0].position[1]}`;
+  }, [markers]);
+
   /* =========================
      BÚSQUEDA TEXTO
   ========================= */
-
   const handleSearch = async (query: string) => {
     if (loading) return;
-
     toast.info("Analizando ubicación...");
     setLoading(true);
     setResult(null);
     setErrorMsg("");
-
-    // si cambias de ubicación, apaga heatmap (evitas “datos viejos”)
     setShowHeatmap(false);
 
     try {
@@ -152,9 +158,8 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query }),
       });
-
       const data = await response.json();
-
+      
       if (!response.ok || !data?.success) {
         const msg = data?.error || "Error al analizar la ubicación.";
         setErrorMsg(msg);
@@ -165,7 +170,7 @@ export default function Home() {
       const coordsTool = Array.isArray(data.tools_used)
         ? data.tools_used.find((t: any) => t?.tool === "buscarCoordenadas")
         : null;
-
+        
       if (coordsTool?.result?.success) {
         const { lat, lon, direccion_completa } = coordsTool.result;
         setMarkerSafe(lat, lon, direccion_completa || query);
@@ -183,13 +188,11 @@ export default function Home() {
   /* =========================
      COMPARAR DOS LUGARES
   ========================= */
-
   const handleCompare = async () => {
     if (!compareA || !compareB) {
       toast.error("Introduce ambos lugares para comparar");
       return;
     }
-
     setCompareLoading(true);
     setCompareResult(null);
 
@@ -199,9 +202,8 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ lugarA: compareA, lugarB: compareB }),
       });
-
       const data = await response.json();
-
+      
       if (!response.ok || !data?.success) {
         toast.error("Error al comparar ubicaciones");
         return;
@@ -219,18 +221,13 @@ export default function Home() {
   /* =========================
      CLICK MAPA
   ========================= */
-
   const handleMapClick = async (lat: number, lon: number) => {
     if (loading) return;
-
     toast.info("Analizando coordenadas...");
     setLoading(true);
     setResult(null);
     setErrorMsg("");
-
-    // si cambias de punto, apaga heatmap (datos antiguos)
     setShowHeatmap(false);
-
     setMarkerSafe(lat, lon, `Lat ${lat.toFixed(6)}, Lon ${lon.toFixed(6)}`);
 
     try {
@@ -239,9 +236,8 @@ export default function Home() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ latitude: lat, longitude: lon }),
       });
-
       const data = await response.json();
-
+      
       if (!response.ok || !data?.success) {
         toast.error("Error al analizar coordenadas");
         return;
@@ -257,15 +253,15 @@ export default function Home() {
   /* =========================
      CARGAR CONTAMINACIÓN (OpenAQ)
   ========================= */
-
   const loadAirQuality = async () => {
     try {
       toast.info("Cargando datos de contaminación...");
       setHeatLoading(true);
-
-      const res = await fetch(`/api/air-quality?lat=${center[0]}&lon=${center[1]}`);
+      const res = await fetch(
+        `/api/air-quality?lat=${center[0]}&lon=${center[1]}`
+      );
       const data = await res.json();
-
+      
       if (!data.points || data.points.length === 0) {
         toast.warning("No hay datos de contaminación cercanos");
         return false;
@@ -276,7 +272,6 @@ export default function Home() {
         p.lon,
         p.value,
       ]);
-
       setHeatPoints(formatted);
       toast.success("Mapa de contaminación cargado");
       return true;
@@ -292,7 +287,7 @@ export default function Home() {
   const toggleHeatmap = async () => {
     if (!showHeatmap) {
       const ok = await loadAirQuality();
-      if (!ok) return; // si falla, NO enciendas la capa
+      if (!ok) return;
     }
     setShowHeatmap((v) => !v);
   };
@@ -300,29 +295,37 @@ export default function Home() {
   /* =========================
      FAVORITOS
   ========================= */
-
   const handleSelectFavorito = (fav: Favorito) => {
     setCenter([fav.lat, fav.lon]);
     setZoom(14);
     setMarkers([{ position: [fav.lat, fav.lon], popup: fav.label }]);
-    setShowHeatmap(false); // cambia de punto → heatmap off
+    setShowHeatmap(false);
     toast.info("Ubicación cargada desde favoritos");
   };
 
-  const reportText =
-    typeof result?.ai_response === "string" && result.ai_response.trim()
-      ? formatReportForDisplay(result.ai_response)
-      : null;
-
-  const currentId =
-    markers.length > 0
-      ? `${markers[0].position[0]},${markers[0].position[1]}`
-      : null;
+  // ✅ Función para abrir el modal con los datos actuales
+  const openAddFavModal = () => {
+    if (!currentId || markers.length === 0) {
+      toast.error("No hay ubicación seleccionada");
+      return;
+    }
+    
+    const lat = markers[0].position[0];
+    const lon = markers[0].position[1];
+    const label = markers[0].popup || `Lat ${lat.toFixed(6)}, Lon ${lon.toFixed(6)}`;
+    
+    setFavDefaultData({
+      id: currentId,
+      label,
+      lat,
+      lon,
+    });
+    setFavModalOpen(true);
+  };
 
   /* =========================
      EXPORTAR PDF
   ========================= */
-
   const exportToPDF = () => {
     if (!reportText) {
       toast.error("No hay informe para exportar");
@@ -331,23 +334,22 @@ export default function Home() {
 
     const doc = new jsPDF("p", "mm", "a4");
     let y = 20;
-
+    
     doc.setFont("helvetica", "bold");
     doc.setFontSize(18);
     doc.text("Informe de Análisis Geoespacial", 105, y, { align: "center" });
-
     y += 12;
+    
     doc.setFontSize(11);
     doc.setFont("helvetica", "normal");
     doc.text(`Fecha: ${new Date().toLocaleString()}`, 20, y);
-
     y += 8;
+    
     doc.line(20, y, 190, y);
     y += 10;
-
+    
     doc.setFontSize(12);
     const lines = doc.splitTextToSize(reportText, 170);
-
     lines.forEach((line: string) => {
       if (y > 270) {
         doc.addPage();
@@ -364,7 +366,6 @@ export default function Home() {
   /* =========================
      RENDER
   ========================= */
-
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-8">
       <div className="max-w-7xl mx-auto space-y-6">
@@ -372,7 +373,9 @@ export default function Home() {
           <h1 className="text-4xl font-bold text-gray-900">
             Asistente Geoespacial con IA
           </h1>
-          <p className="text-gray-600">Análisis geoespacial basado en datos reales</p>
+          <p className="text-gray-600">
+            Análisis geoespacial basado en datos reales
+          </p>
         </div>
 
         <Card>
@@ -388,7 +391,14 @@ export default function Home() {
           </CardContent>
         </Card>
 
-        <FavoritosList favoritos={favoritos} onSelect={handleSelectFavorito} />
+        <FavoritosList
+          favoritos={favoritos}
+          onSelect={handleSelectFavorito}
+          onRemove={(id) => {
+            removeFavorito(id);
+            toast.info("Favorito eliminado");
+          }}
+        />
 
         <Card>
           <CardContent className="p-0">
@@ -403,8 +413,6 @@ export default function Home() {
                 heatmapLoading={heatLoading}
                 onToggleHeatmap={toggleHeatmap}
               />
-
-              {/* ✅ Overlay único (solo en el mapa) */}
               {loading && (
                 <div className="absolute inset-0 z-[999] flex items-center justify-center bg-white/60 backdrop-blur-sm">
                   <div className="flex items-center gap-2 rounded-md bg-white px-4 py-2 shadow">
@@ -416,8 +424,6 @@ export default function Home() {
                 </div>
               )}
             </div>
-
-            {/* ✅ Limitaciones (obligatorio) */}
             <p className="text-xs text-gray-500 mt-2 px-4 pb-4">
               Los datos de contaminación proceden de estaciones cercanas (OpenAQ) y no
               representan valores exactos por punto. La cobertura depende de la
@@ -430,7 +436,6 @@ export default function Home() {
           <Card>
             <CardHeader>
               <CardTitle>Informe de análisis</CardTitle>
-
               <div className="mt-2 flex gap-4">
                 {currentId && (
                   <button
@@ -439,13 +444,8 @@ export default function Home() {
                         removeFavorito(currentId);
                         toast.info("Eliminado de favoritos");
                       } else {
-                        addFavorito({
-                          id: currentId,
-                          label: markers[0].popup,
-                          lat: markers[0].position[0],
-                          lon: markers[0].position[1],
-                        });
-                        toast.success("Guardado en favoritos");
+                        // ✅ Abre el modal para añadir nota/comentario
+                        openAddFavModal();
                       }
                     }}
                     className="text-sm text-blue-600 hover:underline"
@@ -455,7 +455,6 @@ export default function Home() {
                       : "Guardar en favoritos"}
                   </button>
                 )}
-
                 <button
                   onClick={exportToPDF}
                   className="text-sm text-green-600 hover:underline"
@@ -464,14 +463,12 @@ export default function Home() {
                 </button>
               </div>
             </CardHeader>
-
             <CardContent>
               <div className="rounded-lg border bg-white">
                 <div className="max-h-[520px] overflow-auto p-5">
                   {reportText.split("\n").map((line, idx) => {
                     const isTitle =
                       line === line.toUpperCase() && line.trim().length > 4;
-
                     return (
                       <p
                         key={idx}
@@ -491,7 +488,6 @@ export default function Home() {
           </Card>
         )}
 
-        {/* COMPARACIÓN */}
         <Card>
           <CardHeader>
             <CardTitle>Comparación de ubicaciones</CardTitle>
@@ -499,7 +495,6 @@ export default function Home() {
               Introduce dos ciudades, zonas o ubicaciones
             </CardDescription>
           </CardHeader>
-
           <CardContent className="space-y-4">
             <input
               type="text"
@@ -508,7 +503,6 @@ export default function Home() {
               onChange={(e) => setCompareA(e.target.value)}
               className="w-full rounded border px-3 py-2 text-sm"
             />
-
             <input
               type="text"
               placeholder="Lugar B (ej. Bilbao)"
@@ -516,7 +510,6 @@ export default function Home() {
               onChange={(e) => setCompareB(e.target.value)}
               className="w-full rounded border px-3 py-2 text-sm"
             />
-
             <button
               onClick={handleCompare}
               disabled={compareLoading}
@@ -532,12 +525,10 @@ export default function Home() {
             <CardHeader>
               <CardTitle>Resultado de la comparación</CardTitle>
             </CardHeader>
-
             <CardContent>
               {compareResult.split("\n").map((line, idx) => {
                 const isTitle =
                   line === line.toUpperCase() && line.trim().length > 4;
-
                 return (
                   <p
                     key={idx}
@@ -554,6 +545,18 @@ export default function Home() {
             </CardContent>
           </Card>
         )}
+
+        {/* ✅ Modal añadir favorito con nota */}
+        <AddFavoritoModal
+          open={favModalOpen}
+          defaultData={favDefaultData}
+          onClose={() => setFavModalOpen(false)}
+          onConfirm={(fav: Favorito) => {
+            addFavorito(fav);
+            toast.success("Guardado en favoritos");
+            setFavModalOpen(false);
+          }}
+        />
       </div>
     </div>
   );
