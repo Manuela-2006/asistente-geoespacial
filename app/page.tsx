@@ -2,16 +2,11 @@
 import { useMemo, useState } from "react";
 import dynamic from "next/dynamic";
 import jsPDF from "jspdf";
+import { Menu, X, MapPin, History, BarChart3, Star, Download } from "lucide-react";
 import SearchBar from "@/components/SearchBar";
 import FavoritosList from "@/components/FavoritosList";
 import AddFavoritoModal from "@/components/AddFavoritoModal";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
+import HistoricalAnalysis from "@/components/HistoricalAnalysis";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
 import { useFavoritos, Favorito } from "@/hooks/useFavoritos";
@@ -21,21 +16,20 @@ type MarkerItem = { position: [number, number]; popup: string };
 const MapView = dynamic(() => import("@/components/MapView"), {
   ssr: false,
   loading: () => (
-    <div className="h-full w-full flex items-center justify-center bg-gray-50 rounded-lg">
+    <div className="h-full w-full flex items-center justify-center bg-gray-50">
       <Skeleton className="h-full w-full" />
     </div>
   ),
 });
 
+type MenuSection = "search" | "analysis" | "historical" | "compare" | "favorites" | null;
+
 export default function Home() {
   const [center, setCenter] = useState<[number, number]>([40.416775, -3.70379]);
   const [zoom, setZoom] = useState<number>(13);
-  
-  // ✅ Heatmap (control desde page)
   const [showHeatmap, setShowHeatmap] = useState(false);
   const [heatPoints, setHeatPoints] = useState<[number, number, number][]>([]);
   const [heatLoading, setHeatLoading] = useState(false);
-  
   const [markers, setMarkers] = useState<MarkerItem[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [result, setResult] = useState<any>(null);
@@ -48,7 +42,6 @@ export default function Home() {
   const [compareResult, setCompareResult] = useState<string | null>(null);
   const [compareLoading, setCompareLoading] = useState(false);
   
-  // ✅ Modal añadir favorito
   const [favModalOpen, setFavModalOpen] = useState(false);
   const [favDefaultData, setFavDefaultData] = useState<{
     id: string;
@@ -56,6 +49,20 @@ export default function Home() {
     lat: number;
     lon: number;
   } | null>(null);
+
+  // Control del menú lateral
+  const [activeMenu, setActiveMenu] = useState<MenuSection>(null);
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+
+  const toggleMenu = (section: MenuSection) => {
+    if (activeMenu === section) {
+      setActiveMenu(null);
+      setIsMenuOpen(false);
+    } else {
+      setActiveMenu(section);
+      setIsMenuOpen(true);
+    }
+  };
 
   /* =========================
      UTILIDADES
@@ -75,10 +82,7 @@ export default function Home() {
 
   const cleanReport = (text: string) => {
     return text
-      .replace(
-        /([\u2700-\u27BF]|[\uE000-\uF8FF]|[\uD83C-\uDBFF\uDC00-\uDFFF])/g,
-        ""
-      )
+      .replace(/([\u2700-\u27BF]|[\uE000-\uF8FF]|[\uD83C-\uDBFF\uDC00-\uDFFF])/g, "")
       .replace(/\*\*/g, "")
       .replace(/#+\s*/g, "")
       .replace(/^[^A-Za-zÁÉÍÓÚÑáéíóúñ0-9]+/gm, "")
@@ -177,6 +181,8 @@ export default function Home() {
       }
 
       setResult(data);
+      setActiveMenu("analysis");
+      setIsMenuOpen(true);
       toast.success("Ubicación analizada correctamente");
     } catch {
       toast.error("Error de red");
@@ -244,6 +250,8 @@ export default function Home() {
       }
 
       setResult(data);
+      setActiveMenu("analysis");
+      setIsMenuOpen(true);
       toast.success("Coordenadas analizadas correctamente");
     } finally {
       setLoading(false);
@@ -257,9 +265,7 @@ export default function Home() {
     try {
       toast.info("Cargando datos de contaminación...");
       setHeatLoading(true);
-      const res = await fetch(
-        `/api/air-quality?lat=${center[0]}&lon=${center[1]}`
-      );
+      const res = await fetch(`/api/air-quality?lat=${center[0]}&lon=${center[1]}`);
       const data = await res.json();
       
       if (!data.points || data.points.length === 0) {
@@ -303,7 +309,6 @@ export default function Home() {
     toast.info("Ubicación cargada desde favoritos");
   };
 
-  // ✅ Función para abrir el modal con los datos actuales
   const openAddFavModal = () => {
     if (!currentId || markers.length === 0) {
       toast.error("No hay ubicación seleccionada");
@@ -327,237 +332,445 @@ export default function Home() {
      EXPORTAR PDF
   ========================= */
   const exportToPDF = () => {
-    if (!reportText) {
-      toast.error("No hay informe para exportar");
-      return;
-    }
+  if (!reportText) {
+    toast.error("No hay informe para exportar");
+    return;
+  }
 
-    const doc = new jsPDF("p", "mm", "a4");
-    let y = 20;
-    
+  const doc = new jsPDF("p", "mm", "a4");
+
+  const PAGE_W = 210;
+  const PAGE_H = 297;
+  const M = 18; // margen
+  const MAX_W = PAGE_W - M * 2;
+
+  let y = 18;
+
+  // Helpers
+  const ensureSpace = (needed: number) => {
+    if (y + needed > PAGE_H - M) {
+      doc.addPage();
+      y = M;
+    }
+  };
+
+  const addH1 = (text: string) => {
+    ensureSpace(16);
     doc.setFont("helvetica", "bold");
     doc.setFontSize(18);
-    doc.text("Informe de Análisis Geoespacial", 105, y, { align: "center" });
-    y += 12;
-    
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "normal");
-    doc.text(`Fecha: ${new Date().toLocaleString()}`, 20, y);
-    y += 8;
-    
-    doc.line(20, y, 190, y);
+    doc.text(text, PAGE_W / 2, y, { align: "center" });
     y += 10;
-    
-    doc.setFontSize(12);
-    const lines = doc.splitTextToSize(reportText, 170);
-    lines.forEach((line: string) => {
-      if (y > 270) {
-        doc.addPage();
-        y = 20;
-      }
-      doc.text(line, 20, y);
-      y += 6;
-    });
-
-    doc.save("informe_geoespacial.pdf");
-    toast.success("PDF generado correctamente");
   };
+
+  const addMeta = (text: string) => {
+    ensureSpace(8);
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(10.5);
+    doc.text(text, M, y);
+    y += 6;
+  };
+
+  const addDivider = () => {
+    ensureSpace(6);
+    doc.setDrawColor(200);
+    doc.setLineWidth(0.3);
+    doc.line(M, y, PAGE_W - M, y);
+    y += 6;
+  };
+
+  const addSection = (title: string) => {
+    ensureSpace(12);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(12.5);
+    doc.text(title.toUpperCase(), M, y);
+    y += 7;
+  };
+
+  const addParagraph = (text: string) => {
+    const cleaned = text.trim();
+    if (!cleaned) return;
+
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(11);
+
+    const lines = doc.splitTextToSize(cleaned, MAX_W);
+    for (const line of lines) {
+      ensureSpace(6);
+      doc.text(line, M, y);
+      y += 5.5;
+    }
+    y += 2; // aire
+  };
+
+  const addKeyValue = (key: string, value: string) => {
+    const k = key.trim().replace(/:$/, "");
+    const v = value.trim();
+
+    if (!k || !v) return;
+
+    doc.setFontSize(11);
+
+    // Key bold + value normal en la misma línea (si cabe)
+    const keyText = `${k}: `;
+    doc.setFont("helvetica", "bold");
+    const keyW = doc.getTextWidth(keyText);
+
+    doc.setFont("helvetica", "normal");
+    const valueLines = doc.splitTextToSize(v, MAX_W - keyW);
+
+    ensureSpace(6);
+    doc.setFont("helvetica", "bold");
+    doc.text(keyText, M, y);
+
+    doc.setFont("helvetica", "normal");
+    doc.text(valueLines[0], M + keyW, y);
+    y += 5.5;
+
+    // Si hay más líneas de valor, van debajo alineadas con el texto
+    for (let i = 1; i < valueLines.length; i++) {
+      ensureSpace(6);
+      doc.text(valueLines[i], M, y);
+      y += 5.5;
+    }
+
+    y += 1;
+  };
+
+  // ==========
+  // HEADER
+  // ==========
+  addH1("Informe de Análisis Geoespacial");
+  addMeta(`Fecha: ${new Date().toLocaleString()}`);
+  addDivider();
+
+  // ==========
+  // PARSE DEL INFORME
+  // ==========
+  const lines = reportText
+    .split("\n")
+    .map((l) => l.replace(/\s+/g, " ").trim())
+    .filter((l) => l.length > 0);
+
+  const isSectionTitle = (l: string) => {
+    // Títulos tipo "UBICACIÓN" o "INFRAESTRUCTURA URBANA"
+    // (solo letras, espacios y acentos, y longitud mínima)
+    return /^[A-ZÁÉÍÓÚÑÜ\s]{4,}$/.test(l) && l === l.toUpperCase();
+  };
+
+  for (const line of lines) {
+    // Evita líneas duplicadas tipo "Infraestructuras Territoriales: Infraestructuras Territoriales: ..."
+    const dedup = line.replace(/^(.+):\s+\1:\s*/i, "$1: ");
+
+    if (isSectionTitle(dedup)) {
+      addSection(dedup);
+      continue;
+    }
+
+    // Campo: valor
+    const kvMatch = dedup.match(/^(.{2,40}?):\s*(.+)$/);
+    if (kvMatch) {
+      addKeyValue(kvMatch[1], kvMatch[2]);
+      continue;
+    }
+
+    addParagraph(dedup);
+  }
+
+  doc.save("informe_geoespacial.pdf");
+  toast.success("PDF generado correctamente");
+};
 
   /* =========================
      RENDER
   ========================= */
   return (
-    <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4 md:p-8">
-      <div className="max-w-7xl mx-auto space-y-6">
-        <div className="text-center space-y-2">
-          <h1 className="text-4xl font-bold text-gray-900">
-            Asistente Geoespacial con IA
-          </h1>
-          <p className="text-gray-600">
-            Análisis geoespacial basado en datos reales
-          </p>
-        </div>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Buscar ubicación</CardTitle>
-            <CardDescription>
-              Escribe una dirección o haz clic en el mapa
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <SearchBar onSearch={handleSearch} loading={loading} />
-            {errorMsg && <p className="mt-3 text-sm text-red-600">{errorMsg}</p>}
-          </CardContent>
-        </Card>
-
-        <FavoritosList
-          favoritos={favoritos}
-          onSelect={handleSelectFavorito}
-          onRemove={(id) => {
-            removeFavorito(id);
-            toast.info("Favorito eliminado");
-          }}
+    <div className="relative h-screen w-screen overflow-hidden bg-gray-50 font-inter">
+      {/* Mapa a pantalla completa */}
+      <div className="absolute inset-0">
+        <MapView
+          center={center}
+          zoom={zoom}
+          markers={markers}
+          onMapClick={loading ? undefined : handleMapClick}
+          heatmapPoints={showHeatmap ? heatPoints : []}
+          heatmapEnabled={showHeatmap}
+          heatmapLoading={heatLoading}
+          onToggleHeatmap={toggleHeatmap}
         />
+        {loading && (
+          <div className="absolute inset-0 z-[999] flex items-center justify-center bg-white/60 backdrop-blur-sm">
+            <div className="flex items-center gap-3 rounded-xl bg-white px-6 py-4 shadow-2xl">
+              <div className="h-6 w-6 animate-spin rounded-full border-3 border-gray-200 border-t-[#c73866]" />
+              <span className="text-sm font-medium text-gray-700">
+                Analizando ubicación...
+              </span>
+            </div>
+          </div>
+        )}
+      </div>
 
-        <Card>
-          <CardContent className="p-0">
-            <div className="relative h-[500px] w-full">
-              <MapView
-                center={center}
-                zoom={zoom}
-                markers={markers}
-                onMapClick={loading ? undefined : handleMapClick}
-                heatmapPoints={showHeatmap ? heatPoints : []}
-                heatmapEnabled={showHeatmap}
-                heatmapLoading={heatLoading}
-                onToggleHeatmap={toggleHeatmap}
-              />
-              {loading && (
-                <div className="absolute inset-0 z-[999] flex items-center justify-center bg-white/60 backdrop-blur-sm">
-                  <div className="flex items-center gap-2 rounded-md bg-white px-4 py-2 shadow">
-                    <div className="h-5 w-5 animate-spin rounded-full border-2 border-gray-300 border-t-gray-900" />
-                    <span className="text-sm font-medium">
-                      Analizando ubicación...
-                    </span>
+      {/* Botón del menú flotante */}
+      <button
+        onClick={() => setIsMenuOpen(!isMenuOpen)}
+        className="absolute top-6 left-6 z-[1000] flex h-14 w-14 items-center justify-center rounded-full bg-white shadow-2xl transition-all hover:bg-gray-50 hover:scale-105"
+      >
+        {isMenuOpen ? (
+          <X className="h-6 w-6 text-gray-700" />
+        ) : (
+          <Menu className="h-6 w-6 text-gray-700" />
+        )}
+      </button>
+
+      {/* Menú lateral */}
+      <div
+        className={`absolute top-0 left-0 z-[999] h-full w-full md:w-96 bg-white shadow-2xl transform transition-transform duration-300 ${
+          isMenuOpen ? "translate-x-0" : "-translate-x-full"
+        } overflow-y-auto`}
+      >
+        <div className="p-6 space-y-4">
+          <div className="flex items-center justify-between mb-8">
+            <h1 className="text-2xl font-bold text-gray-900">
+              Asistente <span className="text-[#c73866]">Geoespacial</span>
+            </h1>
+            <button
+              onClick={() => setIsMenuOpen(false)}
+              className="md:hidden p-2 hover:bg-gray-100 rounded-lg"
+            >
+              <X className="h-5 w-5" />
+            </button>
+          </div>
+
+          {/* Botones del menú */}
+          <div className="space-y-3">
+            <MenuButton
+              icon={<MapPin className="h-5 w-5" />}
+              label="Buscar Ubicación"
+              active={activeMenu === "search"}
+              onClick={() => toggleMenu("search")}
+            />
+            <MenuButton
+              icon={<BarChart3 className="h-5 w-5" />}
+              label="Informe de Análisis"
+              active={activeMenu === "analysis"}
+              onClick={() => toggleMenu("analysis")}
+              disabled={!reportText}
+            />
+            <MenuButton
+              icon={<History className="h-5 w-5" />}
+              label="Análisis Histórico"
+              active={activeMenu === "historical"}
+              onClick={() => toggleMenu("historical")}
+            />
+            <MenuButton
+              icon={<BarChart3 className="h-5 w-5" />}
+              label="Comparar Ciudades"
+              active={activeMenu === "compare"}
+              onClick={() => toggleMenu("compare")}
+            />
+            <MenuButton
+              icon={<Star className="h-5 w-5" />}
+              label="Favoritos"
+              active={activeMenu === "favorites"}
+              onClick={() => toggleMenu("favorites")}
+              badge={favoritos.length}
+            />
+          </div>
+
+          {/* Contenido según sección activa */}
+          <div className="mt-8">
+            {activeMenu === "search" && (
+              <div className="space-y-4">
+                <h2 className="text-lg font-semibold text-gray-900">Buscar Ubicación</h2>
+                <p className="text-sm text-gray-600">
+                  Escribe una dirección o haz clic en el mapa
+                </p>
+                <SearchBar onSearch={handleSearch} loading={loading} />
+                {errorMsg && <p className="text-sm text-red-600">{errorMsg}</p>}
+              </div>
+            )}
+
+            {activeMenu === "analysis" && reportText && (
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h2 className="text-lg font-semibold text-gray-900">Informe de Análisis</h2>
+                  <div className="flex gap-2">
+                    {currentId && (
+                      <button
+                        onClick={() => {
+                          if (isFavorito(currentId)) {
+                            removeFavorito(currentId);
+                            toast.info("Eliminado de favoritos");
+                          } else {
+                            openAddFavModal();
+                          }
+                        }}
+                        className="flex items-center gap-2 rounded-lg bg-gray-100 px-3 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200 transition-colors"
+                      >
+                        <Star className="h-4 w-4" />
+                        {isFavorito(currentId) ? "Quitar" : "Guardar"}
+                      </button>
+                    )}
+                    <button
+                      onClick={exportToPDF}
+                      className="flex items-center gap-2 rounded-lg bg-[#c73866] px-3 py-2 text-sm font-medium text-white hover:bg-[#a82d52] transition-colors"
+                    >
+                      <Download className="h-4 w-4" />
+                      PDF
+                    </button>
                   </div>
                 </div>
-              )}
-            </div>
-            <p className="text-xs text-gray-500 mt-2 px-4 pb-4">
-              Los datos de contaminación proceden de estaciones cercanas (OpenAQ) y no
-              representan valores exactos por punto. La cobertura depende de la
-              disponibilidad de estaciones y del parámetro PM2.5.
-            </p>
-          </CardContent>
-        </Card>
-
-        {reportText && !loading && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Informe de análisis</CardTitle>
-              <div className="mt-2 flex gap-4">
-                {currentId && (
-                  <button
-                    onClick={() => {
-                      if (isFavorito(currentId)) {
-                        removeFavorito(currentId);
-                        toast.info("Eliminado de favoritos");
-                      } else {
-                        // ✅ Abre el modal para añadir nota/comentario
-                        openAddFavModal();
-                      }
-                    }}
-                    className="text-sm text-blue-600 hover:underline"
-                  >
-                    {isFavorito(currentId)
-                      ? "Quitar de favoritos"
-                      : "Guardar en favoritos"}
-                  </button>
-                )}
-                <button
-                  onClick={exportToPDF}
-                  className="text-sm text-green-600 hover:underline"
-                >
-                  Exportar PDF
-                </button>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <div className="rounded-lg border bg-white">
-                <div className="max-h-[520px] overflow-auto p-5">
-                  {reportText.split("\n").map((line, idx) => {
-                    const isTitle =
-                      line === line.toUpperCase() && line.trim().length > 4;
-                    return (
-                      <p
-                        key={idx}
-                        className={
-                          isTitle
-                            ? "font-bold uppercase text-gray-900 mt-4"
-                            : "text-gray-800 leading-relaxed"
-                        }
-                      >
-                        {line}
-                      </p>
-                    );
-                  })}
+                <div className="rounded-lg border border-gray-200 bg-white p-5 max-h-[calc(100vh-300px)] overflow-auto">
+                  <div className="prose prose-sm max-w-none">
+                    {reportText.split("\n").map((line, idx) => {
+                      const isTitle = line === line.toUpperCase() && line.trim().length > 4;
+                      return (
+                        <p
+                          key={idx}
+                          className={
+                            isTitle
+                              ? "font-bold uppercase text-[#c73866] mt-4 text-base"
+                              : "text-gray-800 leading-relaxed text-sm"
+                          }
+                        >
+                          {line}
+                        </p>
+                      );
+                    })}
+                  </div>
                 </div>
               </div>
-            </CardContent>
-          </Card>
-        )}
+            )}
 
-        <Card>
-          <CardHeader>
-            <CardTitle>Comparación de ubicaciones</CardTitle>
-            <CardDescription>
-              Introduce dos ciudades, zonas o ubicaciones
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <input
-              type="text"
-              placeholder="Lugar A (ej. Barcelona)"
-              value={compareA}
-              onChange={(e) => setCompareA(e.target.value)}
-              className="w-full rounded border px-3 py-2 text-sm"
-            />
-            <input
-              type="text"
-              placeholder="Lugar B (ej. Bilbao)"
-              value={compareB}
-              onChange={(e) => setCompareB(e.target.value)}
-              className="w-full rounded border px-3 py-2 text-sm"
-            />
-            <button
-              onClick={handleCompare}
-              disabled={compareLoading}
-              className="rounded bg-blue-600 px-4 py-2 text-white text-sm hover:bg-blue-700 disabled:opacity-50"
-            >
-              {compareLoading ? "Comparando..." : "Comparar"}
-            </button>
-          </CardContent>
-        </Card>
+            {activeMenu === "historical" && (
+              <HistoricalAnalysis
+                currentLocation={markers.length > 0 ? markers[0].popup : undefined}
+                currentLat={markers.length > 0 ? markers[0].position[0] : undefined}
+                currentLon={markers.length > 0 ? markers[0].position[1] : undefined}
+              />
+            )}
 
-        {compareResult && (
-          <Card>
-            <CardHeader>
-              <CardTitle>Resultado de la comparación</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {compareResult.split("\n").map((line, idx) => {
-                const isTitle =
-                  line === line.toUpperCase() && line.trim().length > 4;
-                return (
-                  <p
-                    key={idx}
-                    className={
-                      isTitle
-                        ? "font-bold uppercase mt-4"
-                        : "text-gray-800 leading-relaxed"
-                    }
-                  >
-                    {line}
-                  </p>
-                );
-              })}
-            </CardContent>
-          </Card>
-        )}
+            {activeMenu === "compare" && (
+              <div className="space-y-4">
+                <h2 className="text-lg font-semibold text-gray-900">Comparar Ciudades</h2>
+                <p className="text-sm text-gray-600">
+                  Introduce dos ciudades, zonas o ubicaciones
+                </p>
+                <input
+                  type="text"
+                  placeholder="Lugar A (ej. Barcelona)"
+                  value={compareA}
+                  onChange={(e) => setCompareA(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#c73866]"
+                />
+                <input
+                  type="text"
+                  placeholder="Lugar B (ej. Bilbao)"
+                  value={compareB}
+                  onChange={(e) => setCompareB(e.target.value)}
+                  className="w-full rounded-lg border border-gray-300 px-4 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#c73866]"
+                />
+                <button
+                  onClick={handleCompare}
+                  disabled={compareLoading}
+                  className="w-full rounded-lg bg-[#c73866] px-4 py-3 text-sm font-medium text-white hover:bg-[#a82d52] disabled:opacity-50 transition-colors"
+                >
+                  {compareLoading ? "Comparando..." : "Comparar"}
+                </button>
 
-        {/* ✅ Modal añadir favorito con nota */}
-        <AddFavoritoModal
-          open={favModalOpen}
-          defaultData={favDefaultData}
-          onClose={() => setFavModalOpen(false)}
-          onConfirm={(fav: Favorito) => {
-            addFavorito(fav);
-            toast.success("Guardado en favoritos");
-            setFavModalOpen(false);
-          }}
-        />
+                {compareResult && (
+                  <div className="rounded-lg border border-gray-200 bg-white p-5 mt-4 max-h-[calc(100vh-400px)] overflow-auto">
+                    <div className="prose prose-sm max-w-none">
+                      {compareResult.split("\n").map((line, idx) => {
+                        const isTitle = line === line.toUpperCase() && line.trim().length > 4;
+                        return (
+                          <p
+                            key={idx}
+                            className={
+                              isTitle
+                                ? "font-bold uppercase text-[#c73866] mt-4"
+                                : "text-gray-800 leading-relaxed"
+                            }
+                          >
+                            {line}
+                          </p>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {activeMenu === "favorites" && (
+              <div className="space-y-4">
+                <h2 className="text-lg font-semibold text-gray-900">Favoritos</h2>
+                <FavoritosList
+                  favoritos={favoritos}
+                  onSelect={(fav) => {
+                    handleSelectFavorito(fav);
+                    setIsMenuOpen(false);
+                  }}
+                  onRemove={(id) => {
+                    removeFavorito(id);
+                    toast.info("Favorito eliminado");
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        </div>
       </div>
+
+      {/* Modal añadir favorito */}
+      <AddFavoritoModal
+        open={favModalOpen}
+        defaultData={favDefaultData}
+        onClose={() => setFavModalOpen(false)}
+        onConfirm={(fav: Favorito) => {
+          addFavorito(fav);
+          toast.success("Guardado en favoritos");
+          setFavModalOpen(false);
+        }}
+      />
     </div>
+  );
+}
+
+// Componente auxiliar para botones del menú
+function MenuButton({
+  icon,
+  label,
+  active,
+  onClick,
+  disabled,
+  badge,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  active?: boolean;
+  onClick: () => void;
+  disabled?: boolean;
+  badge?: number;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`w-full flex items-center justify-between rounded-lg px-4 py-3 text-left transition-all ${
+        active
+          ? "bg-[#c73866] text-white shadow-lg"
+          : "bg-gray-50 text-gray-700 hover:bg-gray-100"
+      } ${disabled ? "opacity-50 cursor-not-allowed" : "cursor-pointer"}`}
+    >
+      <div className="flex items-center gap-3">
+        {icon}
+        <span className="font-medium text-sm">{label}</span>
+      </div>
+      {badge !== undefined && badge > 0 && (
+        <span className="flex h-6 w-6 items-center justify-center rounded-full bg-white text-xs font-bold text-[#c73866]">
+          {badge}
+        </span>
+      )}
+    </button>
   );
 }

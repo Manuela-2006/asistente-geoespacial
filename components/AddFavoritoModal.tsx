@@ -2,8 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { Favorito } from "@/hooks/useFavoritos";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { X, MapPin, MessageSquare, Tag } from "lucide-react";
 
 type Props = {
   open: boolean;
@@ -52,43 +51,67 @@ export default function AddFavoritoModal({
 
   return (
     <>
-      {/* Overlay con z-index muy alto */}
+      {/* Overlay */}
       <div 
-        className="fixed inset-0 bg-black/50 backdrop-blur-sm"
-        style={{ zIndex: 9998 }}
+        className="fixed inset-0 bg-black/50 backdrop-blur-sm z-[9998] animate-in fade-in duration-200"
         onClick={onClose}
       />
       
       {/* Modal */}
       <div 
-        className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none"
-        style={{ zIndex: 9999 }}
+        className="fixed inset-0 flex items-center justify-center p-4 pointer-events-none z-[9999]"
       >
-        <div className="pointer-events-auto w-full max-w-lg">
-          <Card className="shadow-2xl">
-            <CardHeader>
-              <CardTitle>Guardar ubicación en favoritos</CardTitle>
-              <p className="text-sm text-gray-600 mt-1">{title}</p>
-              <p className="text-xs text-gray-500">
-                {defaultData.lat.toFixed(5)}, {defaultData.lon.toFixed(5)}
-              </p>
-            </CardHeader>
+        <div className="pointer-events-auto w-full max-w-lg animate-in zoom-in-95 duration-200">
+          <div className="rounded-2xl bg-white shadow-2xl">
+            {/* Header */}
+            <div className="flex items-center justify-between border-b border-gray-200 p-6">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#c73866]/10 text-[#c73866]">
+                  <MapPin className="h-5 w-5" />
+                </div>
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900">Guardar en favoritos</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">{title}</p>
+                </div>
+              </div>
+              <button
+                onClick={onClose}
+                className="flex h-8 w-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
 
-            <CardContent className="space-y-4">
+            {/* Content */}
+            <div className="p-6 space-y-5">
+              {/* Coordenadas */}
+              <div className="rounded-lg bg-gray-50 p-3">
+                <p className="text-xs font-medium text-gray-500">Coordenadas</p>
+                <p className="text-sm font-mono text-gray-900 mt-1">
+                  {defaultData.lat.toFixed(6)}, {defaultData.lon.toFixed(6)}
+                </p>
+              </div>
+
               {/* Nota */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">Nota / comentario</label>
+                <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                  <MessageSquare className="h-4 w-4 text-[#c73866]" />
+                  Nota / Comentario
+                </label>
                 <textarea
                   value={note}
                   onChange={(e) => setNote(e.target.value)}
-                  placeholder="Ej: zona con buen transporte, revisar precio medio, evitar calle X..."
-                  className="w-full rounded-md border px-3 py-2 text-sm min-h-[90px] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  placeholder="Ej: zona con buen transporte, revisar precio medio..."
+                  className="w-full rounded-xl border-2 border-gray-200 px-4 py-3 text-sm transition-all focus:border-[#c73866] focus:outline-none focus:ring-2 focus:ring-[#c73866]/20 min-h-[100px] resize-none"
                 />
               </div>
 
               {/* Tags */}
               <div className="space-y-2">
-                <label className="text-sm font-medium">Etiquetas (opcional)</label>
+                <label className="flex items-center gap-2 text-sm font-semibold text-gray-700">
+                  <Tag className="h-4 w-4 text-[#c73866]" />
+                  Etiquetas
+                </label>
                 <div className="flex flex-wrap gap-2">
                   {TAGS.map((t) => {
                     const active = selectedTags.includes(t);
@@ -103,10 +126,10 @@ export default function AddFavoritoModal({
                               : [...prev, t]
                           );
                         }}
-                        className={`rounded-full border px-3 py-1 text-xs transition-colors ${
-                          active 
-                            ? "bg-blue-600 text-white border-blue-600" 
-                            : "bg-white text-gray-800 hover:bg-gray-100"
+                        className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-all ${
+                          active
+                            ? "bg-[#c73866] text-white shadow-md" 
+                            : "bg-gray-100 text-gray-700 hover:bg-gray-200"
                         }`}
                       >
                         {t}
@@ -115,35 +138,36 @@ export default function AddFavoritoModal({
                   })}
                 </div>
               </div>
+            </div>
 
-              {/* Acciones */}
-              <div className="flex justify-end gap-2 pt-2">
-                <Button 
-                  variant="secondary" 
-                  onClick={onClose}
-                  type="button"
-                >
-                  Cancelar
-                </Button>
-                <Button
-                  onClick={() => {
-                    onConfirm({
-                      id: defaultData.id,
-                      label: defaultData.label,
-                      lat: defaultData.lat,
-                      lon: defaultData.lon,
-                      note: note.trim() || undefined,
-                      tags: selectedTags.length ? selectedTags : undefined,
-                      createdAt: new Date().toISOString(),
-                    });
-                  }}
-                  type="button"
-                >
-                  Guardar favorito
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
+            {/* Footer */}
+            <div className="flex gap-3 border-t border-gray-200 p-6">
+              <button
+                onClick={onClose}
+                className="flex-1 rounded-xl border-2 border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-all hover:bg-gray-50"
+                type="button"
+              >
+                Cancelar
+              </button>
+              <button
+                onClick={() => {
+                  onConfirm({
+                    id: defaultData.id,
+                    label: defaultData.label,
+                    lat: defaultData.lat,
+                    lon: defaultData.lon,
+                    note: note.trim() || undefined,
+                    tags: selectedTags.length ? selectedTags : undefined,
+                    createdAt: new Date().toISOString(),
+                  });
+                }}
+                className="flex-1 rounded-xl bg-[#c73866] px-4 py-2.5 text-sm font-semibold text-white transition-all hover:bg-[#a82d52] shadow-lg shadow-[#c73866]/25"
+                type="button"
+              >
+                Guardar
+              </button>
+            </div>
+          </div>
         </div>
       </div>
     </>

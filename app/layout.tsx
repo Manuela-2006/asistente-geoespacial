@@ -1,22 +1,28 @@
-import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import type { Metadata, Viewport } from "next";
+import { Inter } from "next/font/google";
+import { Toaster } from "sonner";
 import "./globals.css";
 import "leaflet/dist/leaflet.css";
-import { Toaster } from "@/components/ui/sonner";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
+const inter = Inter({
   subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
+  weight: ["300", "400", "500", "600", "700", "800", "900"],
+  variable: "--font-inter",
+  display: "swap",
 });
 
 export const metadata: Metadata = {
   title: "Asistente Geoespacial con IA",
-  description: "Analiza cualquier ubicación del mundo con datos reales",
+  description: "Análisis geoespacial inteligente basado en datos reales",
+  keywords: ["análisis geoespacial", "IA", "mapas", "ubicación", "datos"],
+};
+
+// ✅ viewport en export separado (Next.js 14+)
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
+  themeColor: "#c73866",
 };
 
 export default function RootLayout({
@@ -25,14 +31,21 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="es">
-      <body
-        className={`${geistSans.variable} ${geistMono.variable} antialiased`}
-      >
+    <html lang="es" className={inter.variable}>
+      <body className={`${inter.className} antialiased bg-gray-50`}>
         {children}
-
-        {/* 🔔 Toaster global para notificaciones */}
-        <Toaster richColors position="top-right" />
+        <Toaster 
+          position="top-right"
+          expand={true}
+          richColors
+          closeButton
+          toastOptions={{
+            duration: 3000,
+            style: {
+              fontFamily: "Inter, sans-serif",
+            },
+          }}
+        />
       </body>
     </html>
   );
