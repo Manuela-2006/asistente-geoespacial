@@ -196,7 +196,7 @@ export default function MapView({
       <MapContainer
   center={center}
   zoom={zoom}
-  minZoom={5}
+  minZoom={15}
   maxZoom={18}
   className="h-full w-full"
   worldCopyJump={false}
