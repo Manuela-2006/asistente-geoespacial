@@ -194,11 +194,14 @@ export default function MapView({
   return (
     <div className="relative h-full w-full">
       <MapContainer
-        center={center}
-        zoom={zoom}
-        className="h-full w-full rounded-lg border border-gray-200 shadow-sm"
-        scrollWheelZoom
-      >
+  center={center}
+  zoom={zoom}
+  minZoom={5}
+  maxZoom={18}
+  className="h-full w-full"
+  worldCopyJump={false}
+>
+
         <ChangeView center={center} zoom={zoom} />
         <MapClickHandler onMapClick={onMapClick} />
 
